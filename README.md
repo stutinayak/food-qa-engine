@@ -1,6 +1,6 @@
 # Food Dataset Q&A System
 
-A sophisticated question-answering system for nutritional and food-related queries, combining local knowledge base with Jina AI capabilities.
+A proof of concept question-answering system for nutritional and food-related queries, combining local knowledge base with external fallback to Jina AI (as suggested in the assignment).
 
 ## Quick Start
 
@@ -32,12 +32,31 @@ uvicorn src.api.app:app --reload
 4. **Test the System**
 ```bash
 # In a new terminal, try a simple query
-curl -X POST "http://localhost:8000/ask" \
-     -H "Content-Type: application/json" \
-     -d '{"text": "How much protein is in chicken?"}'
+curl -X POST "http://localhost:8000/ask" -H "Content-Type: application/json" -d '{"text": "Suggest some low-calorie snacks", "type": null}'
 
 # Run the test suite
 pytest tests/test_api_updated.py -v
+```
+
+### Example Queries
+
+```python
+# Nutritional Queries
+"What fruits are high in vitamin C?"
+"Which foods have the lowest calories?"
+"Show me high protein vegetarian foods"
+
+# Comparison Queries
+"Compare the nutritional value of apples and oranges"
+"Which has more protein, chicken or fish?"
+
+# Recommendation Queries
+"What are some healthy breakfast options?"
+"Suggest some low-calorie snacks"
+
+# Complex Queries
+"What fruits are high in vitamin C but low in calories?"
+"Which vegetables have both high fiber and protein content?"
 ```
 
 ## System Architecture
