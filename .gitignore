@@ -1,0 +1,58 @@
+# Node.js dependencies
+node_modules/
+npm-debug.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyx
+*.pytest_cache/
+*.ipynb_checkpoints
+
+# Logs
+*.log
+logs/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Editor-specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*.venv/
+
+# Build directories
+build/
+dist/
+*.egg-info/
+
+# Environment variables
+.env
+
+# macOS Finder files
+.AppleDouble
+.LSOverride
+
+# Compiled code
+*.o
+*.out
+*.class
+
+# Archives
+*.zip
+*.tar.gz
+*.7z
+
+# Temporary files
+*.tmp
+*.bak
+
+# Testing and coverage
+.coverage/
+*.cover
+*.lcov
+.nyc_output/
