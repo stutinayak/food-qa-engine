@@ -38,27 +38,6 @@ curl -X POST "http://localhost:8000/ask" -H "Content-Type: application/json" -d 
 pytest tests/test_api_updated.py -v
 ```
 
-### Example Queries
-
-```python
-# Nutritional Queries
-"What fruits are high in vitamin C?"
-"Which foods have the lowest calories?"
-"Show me high protein vegetarian foods"
-
-# Comparison Queries
-"Compare the nutritional value of apples and oranges"
-"Which has more protein, chicken or fish?"
-
-# Recommendation Queries
-"What are some healthy breakfast options?"
-"Suggest some low-calorie snacks"
-
-# Complex Queries
-"What fruits are high in vitamin C but low in calories?"
-"Which vegetables have both high fiber and protein content?"
-```
-
 ## System Architecture
 
 ### Core Components
@@ -246,3 +225,10 @@ Key test files:
    pip uninstall -r requirements.txt -y
    pip install -r requirements.txt
    ```
+
+   ## Motivation and Solution Description
+
+* The chosen approach for this assignment leverages a combination of Retrieval-Augmented Generation (RAG) and pattern matching techniques (because I was curious to see how it would work). The motivation for using RAG is that it allows for easier generalization and scalability when working with different datasets. This flexibility is crucial for adapting the system to various nutritional and food-related queries without extensive re-engineering.
+* Initially, I also tried to integrate a Kaggle dataset into the project. However, I encountered several errors during the implementation process. As a result, I opted to utilize the external JINA API, as suggested in the assignment guidelines. This decision enabled me to provide a more robust solution within the time constraints. If I had more time, I would have explored a deeper implementation of the dataset integration to enhance the system's capabilities further.
+* Additionally, _synthetic data generation_ could have been employed to augment the training data, providing a richer dataset for the model to learn from. This approach would have allowed for better performance and adaptability in answering a wider range of queries.
+* Overall, the combination of RAG, pattern matching, and external API integration provides a solid foundation for a scalable and effective question-answering system in the domain of nutrition and food science.
