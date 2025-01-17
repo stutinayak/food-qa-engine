@@ -18,24 +18,30 @@ class QueryProcessor:
                 r'what is the (\w+) content',
                 r'(\w+) content in',
                 r'amount of (\w+)',
+                r'group (\d+)',
+                r'food group (\d+)',
             ],
             QueryType.COMPARISON: [
                 r'compare|versus|vs\.',
                 r'difference between',
                 r'which (has|contains) more',
                 r'better source of',
+                r'compare group',
+                r'which group',
             ],
             QueryType.RECOMMENDATION: [
                 r'what foods? (are|is) (high|rich|low) in',
                 r'foods? with (high|low)',
                 r'best sources? of',
                 r'recommend|suggest',
+                r'which group (has|contains)',
             ],
             QueryType.GENERAL: [
                 r'tell me about',
                 r'what is',
                 r'describe',
                 r'information about',
+                r'group information',
             ]
         }
         

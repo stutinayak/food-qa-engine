@@ -11,6 +11,8 @@ from enum import Enum
 import re
 from .query_processor import QueryProcessor, QueryType
 from .external_fallback import ExternalFallback
+import atexit
+import torch.multiprocessing as mp
 
 # Configure numpy to use newer API
 np.set_printoptions(legacy='1.13')
@@ -23,9 +25,19 @@ class AnswerSource(Enum):
 class RAGEngine:
     def __init__(self, df: pd.DataFrame, use_external: bool = True):
         """Initialize the RAG engine with a dataframe of food data."""
+        # Set multiprocessing start method
+        try:
+            mp.set_start_method('spawn', force=True)
+        except RuntimeError:
+            pass  # Method already set
+            
         self.df = df
         self.use_external = use_external
+        
+        # Initialize model with proper resource handling
         self.model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+        self.model.share_memory()  # Share model across processes
+        
         self.query_processor = QueryProcessor()
         
         if self.use_external:
@@ -39,19 +51,56 @@ class RAGEngine:
         # Track data sources
         self.data_sources = set(df['data_source'].unique()) if 'data_source' in df.columns else {'default'}
         
+        # Register cleanup handler
+        atexit.register(self._cleanup)
+    
+    def _cleanup(self):
+        """Cleanup resources when the engine is shut down."""
+        if hasattr(self, 'model'):
+            # Clear CUDA cache if using GPU
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+            # Clear model from memory
+            self.model = None
+            
+        # Clear other large objects
+        if hasattr(self, 'embeddings'):
+            self.embeddings = None
+        if hasattr(self, 'index'):
+            self.index = None
+    
+    def __del__(self):
+        """Destructor to ensure cleanup is called."""
+        self._cleanup()
+
     def _create_food_contexts(self) -> List[str]:
         """Create context strings for each food item."""
         contexts = []
         for _, row in self.df.iterrows():
-            context = f"""
-            Food: {row['Voedingsmiddelnaam/Dutch food name']}
-            Energy: {row['ENERCC (kcal)']} kcal/100g
-            Protein: {row['PROT (g)']} g/100g
-            Carbs: {row['CHO (g)']} g/100g
-            Fat: {row['FAT (g)']} g/100g
-            Fiber: {row.get('FIBT (g)', 'N/A')} g/100g
-            Vitamin C: {row.get('VITC (mg)', 'N/A')} mg/100g
-            """
+            # Handle Kaggle dataset format
+            if row.get('data_source') == 'kaggle':
+                context = f"""
+                Food Group: {row.get('Group', 'Unknown')}
+                Energy: {row.get('ENERCC (kcal)', 'N/A')} kcal
+                Protein: {row.get('PROT (g)', 'N/A')} g
+                Carbs: {row.get('CHO (g)', 'N/A')} g
+                Fat: {row.get('FAT (g)', 'N/A')} g
+                Fiber: {row.get('FIBT (g)', 'N/A')} g
+                Source: Kaggle Food Groups Dataset
+                """
+            # Handle NEVO dataset format
+            else:
+                context = f"""
+                Food: {row['Voedingsmiddelnaam/Dutch food name']}
+                Energy: {row['ENERCC (kcal)']} kcal/100g
+                Protein: {row['PROT (g)']} g/100g
+                Carbs: {row['CHO (g)']} g/100g
+                Fat: {row['FAT (g)']} g/100g
+                Fiber: {row.get('FIBT (g)', 'N/A')} g/100g
+                Vitamin C: {row.get('VITC (mg)', 'N/A')} mg/100g
+                Source: NEVO Database
+                """
             contexts.append(context.strip())
         return contexts
 
@@ -71,7 +120,35 @@ class RAGEngine:
         # Extract nutritional focus from query
         query_lower = query.lower()
         
-        # Define nutritional patterns
+        # Check for group-specific queries first
+        group_match = re.search(r'group\s*(\d+)', query_lower)
+        if group_match:
+            group_num = group_match.group(1)
+            # Prioritize results from the specified group
+            sorted_results = []
+            for idx, dist, context in results:
+                try:
+                    data_source = self.df.iloc[idx].get('data_source', '')
+                    group = str(self.df.iloc[idx].get('Group', ''))
+                    
+                    # Calculate adjusted distance:
+                    # - Kaggle source with matching group: very low distance (high relevance)
+                    # - Kaggle source with non-matching group: medium distance
+                    # - NEVO source: high distance (low relevance)
+                    if data_source == 'kaggle':
+                        if group == group_num:
+                            adjusted_dist = float(dist) * 0.01  # Boost matching group results significantly
+                        else:
+                            adjusted_dist = float(dist) * 1.5   # Slightly penalize non-matching groups
+                    else:
+                        adjusted_dist = float(dist) * 5.0       # Significantly penalize non-Kaggle results
+                    
+                    sorted_results.append((idx, adjusted_dist, context))
+                except (ValueError, TypeError):
+                    sorted_results.append((idx, float(dist) * 5.0, context))
+            return sorted(sorted_results, key=lambda x: x[1])
+        
+        # Handle other nutritional queries
         patterns = {
             'vitamin_c': (r'vitamin\s*c', 'VITC (mg)'),
             'protein': (r'protein', 'PROT (g)'),
@@ -82,24 +159,21 @@ class RAGEngine:
         # Check if query matches any nutritional pattern
         for nutrient, (pattern, column) in patterns.items():
             if re.search(pattern, query_lower):
-                # Sort results based on the specific nutrient value
                 if column in self.df.columns:
                     sorted_results = []
                     for idx, dist, context in results:
                         try:
-                            # Convert value to float and handle NaN/invalid values
                             value = self.df.iloc[idx][column]
                             value = float(value) if pd.notna(value) and str(value).replace('.', '').isdigit() else 0.0
-                            # Convert distance to float and adjust based on nutrient value
                             dist_float = float(dist)
-                            adjusted_dist = dist_float / (1 + value)
+                            # Also consider data source in ranking
+                            source_multiplier = 0.8 if self.df.iloc[idx].get('data_source') == 'kaggle' else 1.0
+                            adjusted_dist = (dist_float / (1 + value)) * source_multiplier
                             sorted_results.append((idx, adjusted_dist, context))
                         except (ValueError, TypeError):
-                            # If conversion fails, use original distance
                             sorted_results.append((idx, float(dist), context))
                     return sorted(sorted_results, key=lambda x: x[1])
         
-        # If no pattern matches or conversion fails, return original results with float distances
         return [(idx, float(dist), context) for idx, dist, context in results]
 
     def _get_relevant_foods(self, query: str, k: int = 5) -> List[Tuple[int, float, str]]:
@@ -129,15 +203,23 @@ class RAGEngine:
         foods_info = []
         min_relevance_threshold = 0.5  # Increased minimum relevance threshold
         
+        # Check if this is a group-specific query
+        group_match = re.search(r'group\s*(\d+)', query.lower())
+        group_num = group_match.group(1) if group_match else None
+        
         for idx, dist, context in relevant_foods:
-            food_name = self.df.iloc[idx]['Voedingsmiddelnaam/Dutch food name']
             source = self.df.iloc[idx].get('data_source', 'unknown')
             relevance = 1 / (1 + float(dist))  # Convert distance to similarity score
             
+            # For group queries, only include results from the Kaggle dataset
+            if group_num and source != 'kaggle':
+                continue
+                
             # Only include foods with relevance above threshold
             if relevance >= min_relevance_threshold:
                 foods_info.append({
-                    "food": food_name,
+                    "food": f"Food Group {self.df.iloc[idx].get('Group', 'Unknown')}" if source == 'kaggle' 
+                           else self.df.iloc[idx]['Voedingsmiddelnaam/Dutch food name'],
                     "relevance": float(relevance),
                     "source": source,
                     "context": context
@@ -153,7 +235,10 @@ class RAGEngine:
 
         # Generate appropriate answer based on query type
         query_type = query_info.get('query_type', QueryType.UNKNOWN)
-        if query_type == QueryType.COMPARISON and len(query_info.get('comparison_items', [])) == 2:
+        
+        if group_num:
+            answer = f"Here's the nutritional information for Food Group {group_num}:"
+        elif query_type == QueryType.COMPARISON and len(query_info.get('comparison_items', [])) == 2:
             answer = "Here's a comparison of " + ' and '.join(query_info['comparison_items']) + ":"
         elif query_type == QueryType.RECOMMENDATION:
             aspects = query_info.get('nutritional_aspects', [])
