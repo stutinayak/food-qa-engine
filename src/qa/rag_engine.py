@@ -1,7 +1,7 @@
 import warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 warnings.filterwarnings('ignore', category=ImportWarning)
-
+import torch
 from typing import Dict, Any, List, Tuple, Optional
 import pandas as pd
 import numpy as np
@@ -13,6 +13,7 @@ from .query_processor import QueryProcessor, QueryType
 from .external_fallback import ExternalFallback
 import atexit
 import torch.multiprocessing as mp
+import os
 
 # Configure numpy to use newer API
 np.set_printoptions(legacy='1.13')
@@ -25,19 +26,14 @@ class AnswerSource(Enum):
 class RAGEngine:
     def __init__(self, df: pd.DataFrame, use_external: bool = True):
         """Initialize the RAG engine with a dataframe of food data."""
-        # Set multiprocessing start method
-        try:
-            mp.set_start_method('spawn', force=True)
-        except RuntimeError:
-            pass  # Method already set
-            
+        # Force CPU usage for better compatibility
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+        
         self.df = df
         self.use_external = use_external
         
-        # Initialize model with proper resource handling
-        self.model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-        self.model.share_memory()  # Share model across processes
-        
+        # Initialize model
+        self.model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2', device='cpu')
         self.query_processor = QueryProcessor()
         
         if self.use_external:
@@ -57,11 +53,6 @@ class RAGEngine:
     def _cleanup(self):
         """Cleanup resources when the engine is shut down."""
         if hasattr(self, 'model'):
-            # Clear CUDA cache if using GPU
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            
-            # Clear model from memory
             self.model = None
             
         # Clear other large objects

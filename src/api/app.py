@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any
 import os
 import logging
 import atexit
+import torch
 
 from src.data.loader import DataLoader
 from src.qa.rag_engine import RAGEngine, AnswerSource
@@ -11,6 +12,10 @@ from src.qa.rag_engine import RAGEngine, AnswerSource
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+# Force CPU usage
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
+torch.set_num_threads(1)  # Limit number of threads
 
 app = FastAPI()
 qa_engine = None
@@ -31,13 +36,17 @@ async def startup_event():
     """Initialize the QA engine on startup."""
     global qa_engine
     try:
+        logger.info("Loading data...")
         data_loader = DataLoader(kaggle_folder="data/FINAL FOOD DATASET")
-        # Load combined dataset
         df = data_loader.get_data(source="combined")
+        
         if df is None or df.empty:
             logger.error("Failed to load data: DataFrame is empty or None")
             raise ValueError("Failed to load data")
+            
+        logger.info("Initializing QA engine...")
         qa_engine = RAGEngine(df=df, use_external=True)
+        
         logger.info("Successfully initialized QA engine with combined dataset")
         logger.info(f"Available data sources: {qa_engine.data_sources}")
         logger.info(f"Total entries in dataset: {len(df)}")
